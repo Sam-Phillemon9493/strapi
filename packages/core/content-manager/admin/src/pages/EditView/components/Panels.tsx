@@ -115,7 +115,7 @@ const ActionsPanelContent = () => {
         props={props}
         descriptions={(
           plugins['content-manager'].apis as ContentManagerPlugin['config']['apis']
-        ).getDocumentActions()}
+        ).getDocumentActions('panel')}
       >
         {(actions) => <DocumentActions actions={actions} />}
       </DescriptionComponentRenderer>
@@ -151,7 +151,7 @@ const Panel = React.forwardRef<any, PanelProps>(({ children, title }, ref) => {
       justifyContent="stretch"
       alignItems="flex-start"
     >
-      <Typography tag="h2" variant="sigma" textTransform="uppercase">
+      <Typography tag="h2" variant="sigma" textTransform="uppercase" textColor="neutral600">
         {title}
       </Typography>
       {children}

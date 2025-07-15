@@ -66,12 +66,13 @@ const relationsApi = contentManagerApi.injectEndpoints({
             /**
              * Relations will always have unique IDs, so we can therefore assume
              * that we only need to push the new items to the cache.
+             *
+             * Push new items at the beginning as latest items are shown first
              */
-            const existingIds = currentCache.results.map((item) => item.documentId);
-            const uniqueNewItems = newItems.results.filter(
-              (item) => !existingIds.includes(item.documentId)
-            );
-            currentCache.results.push(...prepareTempKeys(uniqueNewItems, currentCache.results));
+            currentCache.results = [
+              ...prepareTempKeys(newItems.results, currentCache.results),
+              ...currentCache.results,
+            ];
             currentCache.pagination = newItems.pagination;
           } else if (newItems.pagination.page === 1) {
             /**
@@ -183,7 +184,6 @@ const relationsApi = contentManagerApi.injectEndpoints({
  */
 const prepareTempKeys = (relations: RelResult[], existingRelations: RelationResult[] = []) => {
   const [firstItem] = existingRelations.slice(0);
-
   const keys = generateNKeysBetween(null, firstItem?.__temp_key__ ?? null, relations.length);
 
   return relations.map((datum, index) => ({

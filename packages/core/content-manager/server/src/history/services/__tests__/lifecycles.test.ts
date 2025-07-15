@@ -21,7 +21,11 @@ const mockGetRequestContext = jest.fn(() => {
 });
 
 const mockStrapi = {
-  service: jest.fn(),
+  service: jest.fn((name: string) => {
+    if (name === 'admin::persist-tables') {
+      return { persistTablesWithPrefix: jest.fn() };
+    }
+  }),
   plugins: {
     'content-manager': {
       service: jest.fn(() => ({
@@ -81,9 +85,9 @@ describe('history lifecycles service', () => {
     jest.useRealTimers();
   });
 
-  it('inits service only once', () => {
-    lifecyclesService.bootstrap();
-    lifecyclesService.bootstrap();
+  it('inits service only once', async () => {
+    await lifecyclesService.bootstrap();
+    await lifecyclesService.bootstrap();
     // @ts-expect-error - ignore
     expect(mockStrapi.documents.use).toHaveBeenCalledTimes(1);
   });
@@ -97,6 +101,6 @@ describe('history lifecycles service', () => {
     await lifecyclesService.bootstrap();
 
     expect(mockScheduleJob).toHaveBeenCalledTimes(1);
-    expect(mockScheduleJob).toHaveBeenCalledWith('0 0 * * *', expect.any(Function));
+    expect(mockScheduleJob).toHaveBeenCalledWith('historyDaily', '0 0 * * *', expect.any(Function));
   });
 });

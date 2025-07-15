@@ -1,3 +1,7 @@
+import jsonLogic from 'json-logic-js';
+
+type JsonLogicCondition = jsonLogic.RulesLogic<jsonLogic.AdditionalOperation>;
+
 /**
  * Enumerates all possible attribute types in Strapi.
  *
@@ -64,6 +68,34 @@ export interface Attribute<TKind extends Kind = Kind> {
    * Meaning that, if it's set to 'true', the attribute would be considered while performing a search operation.
    */
   searchable?: boolean;
+
+  /**
+   * Specifies conditional logic on an attribute's visibility.
+   */
+  conditions?: {
+    visible: JsonLogicCondition;
+  };
+
+  /**
+   * Database validations and settings
+   * https://docs.strapi.io/dev-docs/backend-customization/models#database-validations-and-settings
+   *
+   * @experimental
+   * @deprecated The column property is experimental and can be deprecated/changed at any time in the future.
+   */
+  column?: Partial<Column>;
+}
+
+// NOTE: Copied directly from @strapi/database package
+export interface Column {
+  type?: string;
+  name?: string;
+  args?: unknown[];
+  defaultTo?: unknown;
+  notNullable?: boolean;
+  unsigned?: boolean;
+  unique?: boolean;
+  primary?: boolean;
 }
 
 /**

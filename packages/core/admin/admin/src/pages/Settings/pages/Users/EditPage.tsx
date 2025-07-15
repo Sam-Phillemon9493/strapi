@@ -191,7 +191,6 @@ const EditPage = () => {
                     startIcon={<Check />}
                     loading={isSubmitting}
                     type="submit"
-                    size="L"
                   >
                     {formatMessage({ id: 'global.save', defaultMessage: 'Save' })}
                   </Button>
@@ -206,7 +205,7 @@ const EditPage = () => {
                     name: getDisplayName(initialData),
                   }
                 )}
-                navigationAction={<BackButton />}
+                navigationAction={<BackButton fallback="../users" />}
               />
               <Layouts.Content>
                 {user?.registrationToken && (

@@ -1,4 +1,5 @@
 // @ts-check
+const path = require('path');
 const { devices } = require('@playwright/test');
 const { parseType } = require('@strapi/utils');
 
@@ -27,47 +28,63 @@ const getEnvBool = (envVar, defaultValue) => {
 
 /**
  * @typedef ConfigOptions
- * @type {{ port: number; testDir: string; appDir: string }}
+ * @type {{ port: number; testDir: string; appDir: string; reportFileName: string }}
  */
 
 /**
  * @see https://playwright.dev/docs/test-configuration
  * @type {(options: ConfigOptions) => import('@playwright/test').PlaywrightTestConfig}
  */
-const createConfig = ({ port, testDir, appDir }) => ({
+const createConfig = ({ port, testDir, appDir, reportFileName }) => ({
   testDir,
 
-  /* default timeout for a jest test to 30s */
-  timeout: getEnvNum(process.env.PLAYWRIGHT_TIMEOUT, 30 * 1000),
+  /* default timeout for a jest test */
+  timeout: getEnvNum(process.env.PLAYWRIGHT_TIMEOUT, 90 * 1000),
 
   expect: {
     /**
      * Maximum time expect() should wait for the condition to be met.
      * For example in `await expect(locator).toHaveText();`
      */
-    timeout: getEnvNum(process.env.PLAYWRIGHT_EXPECT_TIMEOUT, 20 * 1000),
+    timeout: getEnvNum(process.env.PLAYWRIGHT_EXPECT_TIMEOUT, 10 * 1000),
   },
   /* Run tests in files in parallel */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
-  retries: process.env.CI ? 3 : 0,
+  retries: process.env.CI ? 3 : 1,
   /* Opt out of parallel tests on CI. */
   workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: 'html',
+  reporter: [
+    ['html'],
+    // Junit reporter for Trunk flaky test CI upload
+    [
+      'junit',
+      {
+        outputFile: path.join(
+          getEnvString(process.env.PLAYWRIGHT_OUTPUT_DIR, '../../junit-reports/'),
+          reportFileName
+        ),
+      },
+    ],
+  ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
     baseURL: `http://127.0.0.1:${port}`,
 
-    /* Default time each action such as `click()` can take to 20s */
-    actionTimeout: getEnvNum(process.env.PLAYWRIGHT_ACTION_TIMEOUT, 20 * 1000),
-    trace: 'retain-on-failure',
+    /** Set timezone for consistency across any machine*/
+    timezoneId: 'Europe/Paris',
+
+    /* Default time each action such as `click()` can take */
+    actionTimeout: getEnvNum(process.env.PLAYWRIGHT_ACTION_TIMEOUT, 10 * 1000),
+    // Only record trace when retrying a test to optimize test performance
+    trace: process.env.CI ? 'on-first-retry' : 'retain-on-failure',
     video: getEnvBool(process.env.PLAYWRIGHT_VIDEO, false)
       ? {
-          mode: 'retain-on-failure', // 'retain-on-failure' to save videos only for failed tests
+          mode: 'on-first-retry', // Only save videos when retrying a test
           size: {
             width: 1280,
             height: 720,

@@ -1,5 +1,5 @@
-import type { UID } from '@strapi/types';
-import { async } from '@strapi/utils';
+import type { UID, Modules } from '@strapi/types';
+import { async, errors } from '@strapi/utils';
 import { assoc, omit } from 'lodash/fp';
 
 import * as components from './components';
@@ -9,19 +9,61 @@ import { transformParamsToQuery } from './transform/query';
 import { pickSelectionParams } from './params';
 import { applyTransforms } from './attributes';
 import { transformData } from './transform/data';
-import entityValidator from '../entity-validator';
 
-const createEntriesService = (uid: UID.ContentType) => {
+const createEntriesService = (
+  uid: UID.ContentType,
+  entityValidator: Modules.EntityValidator.EntityValidator
+) => {
   const contentType = strapi.contentType(uid);
 
   async function createEntry(params = {} as any) {
     const { data, ...restParams } = await transformParamsDocumentId(uid, params);
-
     const query = transformParamsToQuery(uid, pickSelectionParams(restParams) as any); // select / populate
 
     // Validation
     if (!data) {
       throw new Error('Create requires data attribute');
+    }
+
+    // Check for uniqueness based on documentId and locale (if localized)
+    if (data.documentId) {
+      const i18nService = strapi.plugin('i18n')?.service('content-types');
+      const isLocalized = i18nService?.isLocalizedContentType(contentType) ?? false;
+      const hasDraftAndPublish = contentType.options?.draftAndPublish === true;
+
+      const whereClause: Record<string, unknown> = { documentId: data.documentId };
+
+      if (isLocalized) {
+        whereClause.locale = data.locale;
+      }
+
+      let publishedStateDescription = '';
+
+      if (hasDraftAndPublish) {
+        if (data.publishedAt) {
+          // Current entry is published, check for existing published entry
+          whereClause.publishedAt = { $notNull: true };
+          publishedStateDescription = 'published';
+        } else {
+          // Current entry is a draft, check for existing draft entry
+          whereClause.publishedAt = { $null: true };
+          publishedStateDescription = 'draft';
+        }
+      }
+
+      const existingEntry = await strapi.db.query(uid).findOne({
+        select: ['id'],
+        where: whereClause,
+      });
+
+      if (existingEntry) {
+        let errorMsg = `A ${publishedStateDescription} entry with documentId "${data.documentId}"`;
+        if (isLocalized && data.locale) {
+          errorMsg += ` and locale "${data.locale}"`;
+        }
+        errorMsg += ` already exists for UID "${uid}". This combination must be unique.`;
+        throw new errors.ApplicationError(errorMsg);
+      }
     }
 
     const validData = await entityValidator.validateEntityCreation(contentType, data, {

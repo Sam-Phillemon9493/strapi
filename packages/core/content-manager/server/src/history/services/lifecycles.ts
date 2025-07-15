@@ -8,7 +8,7 @@ import { scheduleJob } from 'node-schedule';
 import { getService } from '../utils';
 import { FIELDS_TO_IGNORE, HISTORY_VERSION_UID } from '../constants';
 
-import { CreateHistoryVersion } from '../../../../shared/contracts/history-versions';
+import type { CreateHistoryVersion } from '../../../../shared/contracts/history-versions';
 import { createServiceUtils } from './utils';
 
 /**
@@ -101,6 +101,7 @@ const createLifecyclesService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const serviceUtils = createServiceUtils({ strapi });
+  const { persistTablesWithPrefix } = strapi.service('admin::persist-tables');
 
   return {
     async bootstrap() {
@@ -108,6 +109,9 @@ const createLifecyclesService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (state.isInitialized) {
         return;
       }
+
+      // Avoid data loss in case users temporarily don't have a license
+      await persistTablesWithPrefix('strapi_history_versions');
 
       strapi.documents.use(async (context, next) => {
         const result = (await next()) as any;
@@ -172,17 +176,24 @@ const createLifecyclesService = ({ strapi }: { strapi: Core.Strapi }) => {
       });
 
       // Schedule a job to delete expired history versions every day at midnight
-      state.deleteExpiredJob = scheduleJob('0 0 * * *', () => {
+      state.deleteExpiredJob = scheduleJob('historyDaily', '0 0 * * *', () => {
         const retentionDaysInMilliseconds = serviceUtils.getRetentionDays() * 24 * 60 * 60 * 1000;
         const expirationDate = new Date(Date.now() - retentionDaysInMilliseconds);
 
-        strapi.db.query(HISTORY_VERSION_UID).deleteMany({
-          where: {
-            created_at: {
-              $lt: expirationDate.toISOString(),
+        strapi.db
+          .query(HISTORY_VERSION_UID)
+          .deleteMany({
+            where: {
+              created_at: {
+                $lt: expirationDate,
+              },
             },
-          },
-        });
+          })
+          .catch((error) => {
+            if (error instanceof Error) {
+              strapi.log.error('Error deleting expired history versions', error.message);
+            }
+          });
       });
 
       state.isInitialized = true;

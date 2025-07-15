@@ -2,7 +2,6 @@ import * as React from 'react';
 
 import { Box, Button, Flex, Popover, Tag } from '@strapi/design-system';
 import { Plus, Filter as FilterIcon, Cross } from '@strapi/icons';
-import { Schema } from '@strapi/types';
 import { useIntl } from 'react-intl';
 
 import {
@@ -20,6 +19,8 @@ import { useQueryParams } from '../hooks/useQueryParams';
 import { createContext } from './Context';
 import { Form, InputProps } from './Form';
 import { InputRenderer } from './FormInputs/Renderer';
+
+import type { Schema } from '@strapi/types';
 
 /* -------------------------------------------------------------------------------------------------
  * Root
@@ -120,7 +121,9 @@ const PopoverImpl = () => {
   }
 
   const handleSubmit = (data: FilterFormData) => {
-    const value = FILTERS_WITH_NO_VALUE.includes(data.filter) ? 'true' : data.value;
+    const value = FILTERS_WITH_NO_VALUE.includes(data.filter)
+      ? 'true'
+      : encodeURIComponent(data.value ?? '');
 
     if (!value) {
       return;

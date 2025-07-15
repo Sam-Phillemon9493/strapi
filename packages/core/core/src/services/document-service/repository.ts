@@ -1,11 +1,12 @@
 import { omit, assoc, merge, curry } from 'lodash/fp';
 
-import { async, contentTypes as contentTypesUtils, validate } from '@strapi/utils';
+import { async, contentTypes as contentTypesUtils, validate, errors } from '@strapi/utils';
 
-import { UID } from '@strapi/types';
+import type { UID } from '@strapi/types';
 import { wrapInTransaction, type RepositoryFactoryMethod } from './common';
 import * as DP from './draft-and-publish';
 import * as i18n from './internationalization';
+import { copyNonLocalizedFields } from './internationalization';
 import * as components from './components';
 
 import { createEntriesService } from './entries';
@@ -16,13 +17,18 @@ import { transformParamsToQuery } from './transform/query';
 import { transformParamsDocumentId } from './transform/id-transform';
 import { createEventManager } from './events';
 import * as unidirectionalRelations from './utils/unidirectional-relations';
+import * as bidirectionalRelations from './utils/bidirectional-relations';
+import entityValidator from '../entity-validator';
 
 const { validators } = validate;
 
 // we have to typecast to reconcile the differences between validator and database getModel
 const getModel = ((schema: UID.Schema) => strapi.getModel(schema)) as (schema: string) => any;
 
-export const createContentTypeRepository: RepositoryFactoryMethod = (uid) => {
+export const createContentTypeRepository: RepositoryFactoryMethod = (
+  uid,
+  validator = entityValidator
+) => {
   const contentType = strapi.contentType(uid);
   const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(contentType);
 
@@ -44,12 +50,17 @@ export const createContentTypeRepository: RepositoryFactoryMethod = (uid) => {
     await validators.validateFields(ctx, params.fields, fieldValidations);
     await validators.validatePopulate(ctx, params.populate, populateValidations);
 
+    // Strip lookup from params, it's only used internally
+    if (params.lookup) {
+      throw new errors.ValidationError("Invalid params: 'lookup'");
+    }
+
     // TODO: add validate status, locale, pagination
 
     return params;
   };
 
-  const entries = createEntriesService(uid);
+  const entries = createEntriesService(uid, validator);
 
   const eventManager = createEventManager(strapi, uid);
   const emitEvent = curry(eventManager.emitEvent);
@@ -180,7 +191,7 @@ export const createContentTypeRepository: RepositoryFactoryMethod = (uid) => {
       entriesToClone,
       async.pipe(
         validateParams,
-        omit('id'),
+        omit(['id', 'createdAt', 'updatedAt']),
         // assign new documentId
         assoc('documentId', createDocumentId()),
         // Merge new data into it
@@ -230,9 +241,14 @@ export const createContentTypeRepository: RepositoryFactoryMethod = (uid) => {
         .findOne({ where: { documentId } });
 
       if (documentExists) {
+        const mergedData = await copyNonLocalizedFields(contentType, documentId, {
+          ...queryParams.data,
+          documentId,
+        });
+
         updatedDraft = await entries.create({
           ...queryParams,
-          data: { ...queryParams.data, documentId },
+          data: mergedData,
         });
         emitEvent('entry.create', updatedDraft);
       }
@@ -291,7 +307,15 @@ export const createContentTypeRepository: RepositoryFactoryMethod = (uid) => {
     ]);
 
     // Load any unidirectional relation targetting the old published entries
-    const relationsToSync = await unidirectionalRelations.load(uid, oldPublishedVersions);
+    const relationsToSync = await unidirectionalRelations.load(uid, {
+      newVersions: draftsToPublish,
+      oldVersions: oldPublishedVersions,
+    });
+
+    const bidirectionalRelationsToSync = await bidirectionalRelations.load(uid, {
+      newVersions: draftsToPublish,
+      oldVersions: oldPublishedVersions,
+    });
 
     // Delete old published versions
     await async.map(oldPublishedVersions, (entry: any) => entries.delete(entry.id));
@@ -302,7 +326,17 @@ export const createContentTypeRepository: RepositoryFactoryMethod = (uid) => {
     );
 
     // Sync unidirectional relations with the new published entries
-    await unidirectionalRelations.sync(oldPublishedVersions, publishedEntries, relationsToSync);
+    await unidirectionalRelations.sync(
+      [...oldPublishedVersions, ...draftsToPublish],
+      publishedEntries,
+      relationsToSync
+    );
+
+    await bidirectionalRelations.sync(
+      [...oldPublishedVersions, ...draftsToPublish],
+      publishedEntries,
+      bidirectionalRelationsToSync
+    );
 
     publishedEntries.forEach(emitEvent('entry.publish'));
 
@@ -358,7 +392,15 @@ export const createContentTypeRepository: RepositoryFactoryMethod = (uid) => {
     ]);
 
     // Load any unidirectional relation targeting the old drafts
-    const relationsToSync = await unidirectionalRelations.load(uid, oldDrafts);
+    const relationsToSync = await unidirectionalRelations.load(uid, {
+      newVersions: versionsToDraft,
+      oldVersions: oldDrafts,
+    });
+
+    const bidirectionalRelationsToSync = await bidirectionalRelations.load(uid, {
+      newVersions: versionsToDraft,
+      oldVersions: oldDrafts,
+    });
 
     // Delete old drafts
     await async.map(oldDrafts, (entry: any) => entries.delete(entry.id));
@@ -369,7 +411,17 @@ export const createContentTypeRepository: RepositoryFactoryMethod = (uid) => {
     );
 
     // Sync unidirectional relations with the new draft entries
-    await unidirectionalRelations.sync(oldDrafts, draftEntries, relationsToSync);
+    await unidirectionalRelations.sync(
+      [...oldDrafts, ...versionsToDraft],
+      draftEntries,
+      relationsToSync
+    );
+
+    await bidirectionalRelations.sync(
+      [...oldDrafts, ...versionsToDraft],
+      draftEntries,
+      bidirectionalRelationsToSync
+    );
 
     draftEntries.forEach(emitEvent('entry.draft-discard'));
     return { documentId, entries: draftEntries };

@@ -117,7 +117,7 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
     let weeklySchedule = currentSchedule;
 
     if (!weeklySchedule || !lastWeeklyUpdate || lastWeeklyUpdate + ONE_WEEK < now.getTime()) {
-      weeklySchedule = getWeeklyCronScheduleAt(add(now, { minutes: 5 }));
+      weeklySchedule = getWeeklyCronScheduleAt(add(now, { seconds: 15 }));
       await setMetricsStoreValue({ ...metricsInfoStored, weeklySchedule });
 
       return weeklySchedule;
@@ -129,6 +129,11 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
   async registerCron() {
     const weeklySchedule = await this.ensureWeeklyStoredCronSchedule();
 
-    strapi.cron.add({ [weeklySchedule]: this.sendMetrics.bind(this) });
+    strapi.cron.add({
+      uploadWeekly: {
+        task: this.sendMetrics.bind(this),
+        options: weeklySchedule,
+      },
+    });
   },
 });

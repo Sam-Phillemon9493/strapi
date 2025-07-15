@@ -7,8 +7,10 @@ import {
   BadgeProps,
   AccessibleIcon,
 } from '@strapi/design-system';
-import { NavLink as RouterLink, LinkProps } from 'react-router-dom';
+import { NavLink as RouterLink, LinkProps, To } from 'react-router-dom';
 import { styled } from 'styled-components';
+
+import { tours as unstable_tours } from '../UnstableGuidedTour/Tours';
 
 /* -------------------------------------------------------------------------------------------------
  * Link
@@ -24,30 +26,44 @@ const MainNavLinkWrapper = styled(RouterLink)`
   padding-block: 0.6rem;
   padding-inline: 0.6rem;
 
-  &:hover,
-  &.active {
-    background: ${({ theme }) => theme.colors.neutral100};
-  }
-
   &:hover {
     svg path {
       fill: ${({ theme }) => theme.colors.neutral600};
     }
-    color: ${({ theme }) => theme.colors.neutral700};
+    background: ${({ theme }) => theme.colors.neutral100};
   }
 
   &.active {
     svg path {
       fill: ${({ theme }) => theme.colors.primary600};
     }
-
-    color: ${({ theme }) => theme.colors.primary600};
-    font-weight: 500;
+    background: ${({ theme }) => theme.colors.primary100};
   }
 `;
 
+const getGuidedTourTooltip = (to: To) => {
+  const normalizedTo = to.toString().replace(/\//g, '');
+
+  switch (normalizedTo) {
+    case 'content-manager':
+      return unstable_tours.contentTypeBuilder.Finish;
+    case '':
+      return unstable_tours.apiTokens.Finish;
+    case 'settings':
+      return unstable_tours.contentManager.Finish;
+    default:
+      return React.Fragment;
+  }
+};
+
 const LinkImpl = ({ children, ...props }: LinkProps) => {
-  return <MainNavLinkWrapper {...props}>{children}</MainNavLinkWrapper>;
+  const GuidedTourTooltip = getGuidedTourTooltip(props.to);
+
+  return (
+    <GuidedTourTooltip>
+      <MainNavLinkWrapper {...props}>{children}</MainNavLinkWrapper>
+    </GuidedTourTooltip>
+  );
 };
 
 /* -------------------------------------------------------------------------------------------------

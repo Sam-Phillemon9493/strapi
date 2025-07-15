@@ -14,9 +14,18 @@ import {
   useRBAC,
   Layouts,
   useTable,
+  unstable_tours,
 } from '@strapi/admin/strapi-admin';
-import { Button, Flex, Typography, ButtonProps } from '@strapi/design-system';
+import {
+  Button,
+  Flex,
+  Typography,
+  ButtonProps,
+  Box,
+  EmptyStateLayout,
+} from '@strapi/design-system';
 import { Plus } from '@strapi/icons';
+import { EmptyDocuments } from '@strapi/icons/symbols';
 import isEqual from 'lodash/isEqual';
 import { stringify } from 'qs';
 import { useIntl } from 'react-intl';
@@ -100,6 +109,7 @@ const ListViewPage = () => {
   });
 
   const params = React.useMemo(() => buildValidParams(query), [query]);
+
   const { data, error, isFetching } = useGetAllDocumentsQuery({
     model,
     params,
@@ -148,9 +158,23 @@ const ListViewPage = () => {
     });
 
     const formattedHeaders = headers.displayedHeaders.map<ListFieldLayout>((header) => {
+      /**
+       * When the header label is a string, it is an attribute on the current content-type:
+       * Use the attribute name value to compute the translation.
+       * Otherwise, it should be a  translation object coming from a plugin that injects into the table (ie i18n, content-releases, review-workflows):
+       * Use the translation object as is.
+       */
+      const translation =
+        typeof header.label === 'string'
+          ? {
+              id: `content-manager.content-types.${model}.${header.name}`,
+              defaultMessage: header.label,
+            }
+          : header.label;
+
       return {
         ...header,
-        label: typeof header.label === 'string' ? header.label : formatMessage(header.label),
+        label: formatMessage(translation),
         name: `${header.name}${header.mainField?.name ? `.${header.mainField.name}` : ''}`,
       };
     });
@@ -171,7 +195,14 @@ const ListViewPage = () => {
     }
 
     return formattedHeaders;
-  }, [displayedHeaders, formatMessage, list, runHookWaterfall, schema?.options?.draftAndPublish]);
+  }, [
+    displayedHeaders,
+    formatMessage,
+    list,
+    runHookWaterfall,
+    schema?.options?.draftAndPublish,
+    model,
+  ]);
 
   if (isFetching) {
     return <Page.Loading />;
@@ -181,7 +212,12 @@ const ListViewPage = () => {
     return <Page.Error />;
   }
 
-  const contentTypeTitle = schema?.info.displayName ?? 'Untitled';
+  const contentTypeTitle = schema?.info.displayName
+    ? formatMessage({ id: schema.info.displayName, defaultMessage: schema.info.displayName })
+    : formatMessage({
+        id: 'content-manager.containers.untitled',
+        defaultMessage: 'Untitled',
+      });
 
   const handleRowClick = (id: Modules.Documents.ID) => () => {
     trackUsage('willEditEntryFromList');
@@ -190,6 +226,79 @@ const ListViewPage = () => {
       search: stringify({ plugins: query.plugins }),
     });
   };
+
+  if (!isFetching && results.length === 0) {
+    return (
+      <>
+        <unstable_tours.contentManager.Introduction>
+          {/* Invisible Anchor */}
+          <Box paddingTop={5} />
+        </unstable_tours.contentManager.Introduction>
+        <Page.Main>
+          <Page.Title>{`${contentTypeTitle}`}</Page.Title>
+          <LayoutsHeaderCustom
+            primaryAction={canCreate ? <CreateButton /> : null}
+            subtitle={formatMessage(
+              {
+                id: getTranslation('pages.ListView.header-subtitle'),
+                defaultMessage:
+                  '{number, plural, =0 {# entries} one {# entry} other {# entries}} found',
+              },
+              { number: pagination?.total }
+            )}
+            title={contentTypeTitle}
+            navigationAction={<BackButton />}
+          />
+          <Layouts.Action
+            endActions={
+              <>
+                <InjectionZone area="listView.actions" />
+                <ViewSettingsMenu
+                  setHeaders={handleSetHeaders}
+                  resetHeaders={() => setDisplayedHeaders(list.layout)}
+                  headers={displayedHeaders.map((header) => header.name)}
+                />
+              </>
+            }
+            startActions={
+              <>
+                {list.settings.searchable && (
+                  <SearchInput
+                    disabled={results.length === 0}
+                    label={formatMessage(
+                      { id: 'app.component.search.label', defaultMessage: 'Search for {target}' },
+                      { target: contentTypeTitle }
+                    )}
+                    placeholder={formatMessage({
+                      id: 'global.search',
+                      defaultMessage: 'Search',
+                    })}
+                    trackedEvent="didSearch"
+                  />
+                )}
+                {list.settings.filterable && schema ? (
+                  <Filters disabled={results.length === 0} schema={schema} />
+                ) : null}
+              </>
+            }
+          />
+          <Layouts.Content>
+            <Box background="neutral0" shadow="filterShadow" hasRadius>
+              <EmptyStateLayout
+                action={canCreate ? <CreateButton variant="secondary" /> : null}
+                content={formatMessage({
+                  id: 'app.components.EmptyStateLayout.content-document',
+                  defaultMessage: 'No content found',
+                })}
+                hasRadius
+                icon={<EmptyDocuments width="16rem" />}
+              />
+            </Box>
+          </Layouts.Content>
+        </Page.Main>
+      </>
+    );
+  }
 
   return (
     <Page.Main>
@@ -304,7 +413,7 @@ const ListViewPage = () => {
                           </Table.Cell>
                         );
                       })}
-                      {/* we stop propogation here to allow the menu to trigger it's events without triggering the row redirect */}
+                      {/* we stop propagation here to allow the menu to trigger it's events without triggering the row redirect */}
                       <ActionsCell onClick={(e) => e.stopPropagation()}>
                         <TableActions document={row} />
                       </ActionsCell>

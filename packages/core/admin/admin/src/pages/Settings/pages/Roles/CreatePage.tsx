@@ -11,6 +11,7 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
+import { Check } from '@strapi/icons';
 import { format } from 'date-fns';
 import { Formik, Form, FormikHelpers } from 'formik';
 import { useIntl } from 'react-intl';
@@ -197,14 +198,13 @@ const CreatePage = () => {
                         handleReset();
                         permissionsRef.current?.resetForm();
                       }}
-                      size="L"
                     >
                       {formatMessage({
                         id: 'app.components.Button.reset',
                         defaultMessage: 'Reset',
                       })}
                     </Button>
-                    <Button type="submit" loading={isSubmitting} size="L">
+                    <Button type="submit" loading={isSubmitting} startIcon={<Check />}>
                       {formatMessage({
                         id: 'global.save',
                         defaultMessage: 'Save',
@@ -220,7 +220,7 @@ const CreatePage = () => {
                   id: 'Settings.roles.create.description',
                   defaultMessage: 'Define the rights given to the role',
                 })}
-                navigationAction={<BackButton />}
+                navigationAction={<BackButton fallback="../roles" />}
               />
               <Layouts.Content>
                 <Flex direction="column" alignItems="stretch" gap={6}>

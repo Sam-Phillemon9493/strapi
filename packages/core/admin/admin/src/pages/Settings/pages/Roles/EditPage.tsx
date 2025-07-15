@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import { Box, Button, Flex, Main } from '@strapi/design-system';
+import { Check } from '@strapi/icons';
 import { Formik, FormikHelpers } from 'formik';
 import { useIntl } from 'react-intl';
 import { Navigate, useMatch } from 'react-router-dom';
@@ -191,9 +192,9 @@ const EditPage = () => {
                 <Flex gap={2}>
                   <Button
                     type="submit"
+                    startIcon={<Check />}
                     disabled={role.code === 'strapi-super-admin'}
                     loading={isSubmitting}
-                    size="L"
                   >
                     {formatMessage({
                       id: 'global.save',
@@ -210,7 +211,7 @@ const EditPage = () => {
                 id: 'Settings.roles.create.description',
                 defaultMessage: 'Define the rights given to the role',
               })}
-              navigationAction={<BackButton />}
+              navigationAction={<BackButton fallback="../roles" />}
             />
             <Layouts.Content>
               <Flex direction="column" alignItems="stretch" gap={6}>

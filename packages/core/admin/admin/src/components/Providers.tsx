@@ -13,6 +13,7 @@ import { TrackingProvider } from '../features/Tracking';
 import { GuidedTourProvider } from './GuidedTour/Provider';
 import { LanguageProvider } from './LanguageProvider';
 import { Theme } from './Theme';
+import { UnstableGuidedTourContext } from './UnstableGuidedTour/Context';
 
 import type { Store } from '../core/store/configure';
 import type { StrapiApp } from '../StrapiApp';
@@ -36,6 +37,7 @@ const Providers = ({ children, strapi, store }: ProvidersProps) => {
     <StrapiAppProvider
       components={strapi.library.components}
       customFields={strapi.customFields}
+      widgets={strapi.widgets}
       fields={strapi.library.fields}
       menu={strapi.router.menu}
       getAdminInjectedComponents={strapi.getAdminInjectedComponents}
@@ -56,14 +58,15 @@ const Providers = ({ children, strapi, store }: ProvidersProps) => {
                   <NotificationsProvider>
                     <TrackingProvider>
                       <GuidedTourProvider>
-                        <ConfigurationProvider
-                          defaultAuthLogo={strapi.configurations.authLogo}
-                          defaultMenuLogo={strapi.configurations.menuLogo}
-                          showTutorials={strapi.configurations.tutorials}
-                          showReleaseNotification={strapi.configurations.notifications.releases}
-                        >
-                          {children}
-                        </ConfigurationProvider>
+                        <UnstableGuidedTourContext>
+                          <ConfigurationProvider
+                            defaultAuthLogo={strapi.configurations.authLogo}
+                            defaultMenuLogo={strapi.configurations.menuLogo}
+                            showReleaseNotification={strapi.configurations.notifications.releases}
+                          >
+                            {children}
+                          </ConfigurationProvider>
+                        </UnstableGuidedTourContext>
                       </GuidedTourProvider>
                     </TrackingProvider>
                   </NotificationsProvider>

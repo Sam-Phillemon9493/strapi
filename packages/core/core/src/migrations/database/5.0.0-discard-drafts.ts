@@ -15,6 +15,7 @@
 import type { UID } from '@strapi/types';
 import type { Database, Migration } from '@strapi/database';
 import { async, contentTypes } from '@strapi/utils';
+import { createDocumentService } from '../../services/document-service';
 
 type DocumentVersion = { documentId: string; locale: string };
 type Knex = Parameters<Migration['up']>[0];
@@ -112,13 +113,22 @@ export async function* getBatchToDiscard({
   db,
   trx,
   uid,
-  batchSize = 1000,
+  defaultBatchSize = 1000,
 }: {
   db: Database;
   trx: Knex;
   uid: string;
-  batchSize?: number;
+  defaultBatchSize?: number;
 }) {
+  const client = db.config.connection.client;
+  const isSQLite =
+    typeof client === 'string' && ['sqlite', 'sqlite3', 'better-sqlite3'].includes(client);
+
+  // The SQLite documentation states that the maximum number of terms in a
+  // compound SELECT statement is 500 by default.
+  // See: https://www.sqlite.org/limits.html
+  // To ensure a successful migration, we limit the batch size to 500 for SQLite.
+  const batchSize = isSQLite ? Math.min(defaultBatchSize, 500) : defaultBatchSize;
   let offset = 0;
   let hasMore = true;
 
@@ -168,15 +178,34 @@ const migrateUp = async (trx: Knex, db: Database) => {
    *
    * Load a batch of entries (batched to prevent loading millions of rows at once ),
    * and discard them using the document service.
+   *
+   * NOTE: This is using a custom document service without any validations,
+   *       to prevent the migration from failing if users already had invalid data in V4.
+   *       E.g. @see https://github.com/strapi/strapi/issues/21583
    */
+  const documentService = createDocumentService(strapi, {
+    async validateEntityCreation(_, data) {
+      return data;
+    },
+    async validateEntityUpdate(_, data) {
+      // Data can be partially empty on partial updates
+      // This migration doesn't trigger any update (or partial update),
+      // so it's safe to return the data as is.
+      return data as any;
+    },
+  });
+
   for (const model of dpModels) {
     const discardDraft = async (entry: DocumentVersion) =>
-      strapi
-        .documents(model.uid as UID.ContentType)
-        .discardDraft({ documentId: entry.documentId, locale: entry.locale });
+      documentService(model.uid as UID.ContentType).discardDraft({
+        documentId: entry.documentId,
+        locale: entry.locale,
+      });
 
     for await (const batch of getBatchToDiscard({ db, trx, uid: model.uid })) {
-      await async.map(batch, discardDraft, { concurrency: 10 });
+      // NOTE: concurrency had to be disabled to prevent a race condition with self-references
+      // TODO: improve performance in a safe way
+      await async.map(batch, discardDraft, { concurrency: 1 });
     }
   }
 };

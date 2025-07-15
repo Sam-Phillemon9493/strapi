@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import webpackDevMiddleware from 'webpack-dev-middleware';
 import webpackHotMiddleware from 'webpack-hot-middleware';
 import { webpack } from 'webpack';
-import { Core } from '@strapi/types';
+import type { Core } from '@strapi/types';
 import type { BuildContext } from '../create-build-context';
 import { mergeConfigWithUserConfig, resolveDevelopmentConfig } from './config';
 
@@ -23,7 +23,6 @@ const watch = async (ctx: BuildContext): Promise<WebpackWatcher> => {
 
     const devMiddleware = webpackDevMiddleware(compiler);
 
-    // @ts-expect-error incompatible types between hotMiddleware and webpack
     const hotMiddleware = webpackHotMiddleware(compiler, {
       log: false,
       path: '/__webpack_hmr',
@@ -90,7 +89,7 @@ const watch = async (ctx: BuildContext): Promise<WebpackWatcher> => {
     ctx.strapi.server.routes([
       {
         method: 'GET',
-        path: `${ctx.basePath}:path*`,
+        path: `${ctx.adminPath}/:path*`,
         handler: serveAdmin,
         config: { auth: false },
       },

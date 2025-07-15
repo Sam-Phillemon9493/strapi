@@ -98,7 +98,6 @@ const WebhookForm = ({
                   variant="tertiary"
                   startIcon={<Publish />}
                   disabled={isCreating || isTriggering}
-                  size="L"
                 >
                   {formatMessage({
                     id: 'Settings.webhooks.trigger',
@@ -108,7 +107,6 @@ const WebhookForm = ({
                 <Button
                   startIcon={<Check />}
                   type="submit"
-                  size="L"
                   disabled={!modified}
                   loading={isSubmitting}
                 >
@@ -127,7 +125,7 @@ const WebhookForm = ({
                   })
                 : data?.name
             }
-            navigationAction={<BackButton />}
+            navigationAction={<BackButton fallback="../webhooks" />}
           />
           <Layouts.Content>
             <Flex direction="column" alignItems="stretch" gap={4}>

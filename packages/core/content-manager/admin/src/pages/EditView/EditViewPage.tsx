@@ -4,9 +4,11 @@ import {
   Page,
   Blocker,
   Form,
+  useForm,
   useRBAC,
   useNotification,
   useQueryParams,
+  unstable_tours,
 } from '@strapi/admin/strapi-admin';
 import { Grid, Main, Tabs } from '@strapi/design-system';
 import { useIntl } from 'react-intl';
@@ -16,7 +18,7 @@ import { styled } from 'styled-components';
 import { SINGLE_TYPES } from '../../constants/collections';
 import { PERMISSIONS } from '../../constants/plugin';
 import { DocumentRBAC, useDocumentRBAC } from '../../features/DocumentRBAC';
-import { type UseDocument, useDoc } from '../../hooks/useDocument';
+import { useDoc, type UseDocument } from '../../hooks/useDocument';
 import { useDocumentLayout } from '../../hooks/useDocumentLayout';
 import { useLazyComponents } from '../../hooks/useLazyComponents';
 import { useOnce } from '../../hooks/useOnce';
@@ -26,12 +28,20 @@ import { createYupSchema } from '../../utils/validation';
 import { FormLayout } from './components/FormLayout';
 import { Header } from './components/Header';
 import { Panels } from './components/Panels';
-import { transformDocument } from './utils/data';
-import { createDefaultForm } from './utils/forms';
+import { handleInvisibleAttributes } from './utils/data';
 
 /* -------------------------------------------------------------------------------------------------
  * EditViewPage
  * -----------------------------------------------------------------------------------------------*/
+
+// Needs to be wrapped in a component to have access to the form context via a hook.
+// Using the Form component's render prop instead would cause unnecessary re-renders of Form children
+const BlockerWrapper = () => {
+  const resetForm = useForm('BlockerWrapper', (state) => state.resetForm);
+
+  // We reset the form to the published version to avoid errors like – https://strapi-inc.atlassian.net/browse/CONTENT-2284
+  return <Blocker onProceed={resetForm} />;
+};
 
 const EditViewPage = () => {
   const location = useLocation();
@@ -46,6 +56,7 @@ const EditViewPage = () => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
 
+  const doc = useDoc();
   const {
     document,
     meta,
@@ -56,7 +67,9 @@ const EditViewPage = () => {
     id,
     model,
     hasError,
-  } = useDoc();
+    getTitle,
+    getInitialFormValues,
+  } = doc;
 
   const hasDraftAndPublished = schema?.options?.draftAndPublish ?? false;
 
@@ -93,42 +106,19 @@ const EditViewPage = () => {
       settings: { mainField },
     },
   } = useDocumentLayout(model);
+  const pageTitle = getTitle(mainField);
 
   const { isLazyLoading } = useLazyComponents([]);
 
   const isLoading = isLoadingActionsRBAC || isLoadingDocument || isLoadingLayout || isLazyLoading;
 
-  /**
-   * Here we prepare the form for editing, we need to:
-   * - remove prohibited fields from the document (passwords | ADD YOURS WHEN THERES A NEW ONE)
-   * - swap out count objects on relations for empty arrays
-   * - set __temp_key__ on array objects for drag & drop
-   *
-   * We also prepare the form for new documents, so we need to:
-   * - set default values on fields
-   */
-  const initialValues = React.useMemo(() => {
-    if ((!document && !isCreatingDocument && !isSingleType) || !schema) {
-      return undefined;
-    }
-
-    /**
-     * Check that we have an ID so we know the
-     * document has been created in some way.
-     */
-    const form = document?.id ? document : createDefaultForm(schema, components);
-
-    return transformDocument(schema, components)(form);
-  }, [document, isCreatingDocument, isSingleType, schema, components]);
-  if (hasError) {
-    return <Page.Error />;
-  }
+  const initialValues = getInitialFormValues(isCreatingDocument);
 
   if (isLoading && !document?.documentId) {
     return <Page.Loading />;
   }
 
-  if (!initialValues) {
+  if (!initialValues || hasError) {
     return <Page.Error />;
   }
 
@@ -138,84 +128,93 @@ const EditViewPage = () => {
     }
   };
 
-  /**
-   * We look to see what the mainField is from the configuration,
-   * if it's an id we don't use it because it's a uuid format and
-   * not very user friendly. Instead in that case, we simply write "Untitled".
-   */
-  const documentTitle =
-    mainField !== 'id' && document?.[mainField] ? document[mainField] : 'Untitled';
+  const validateSync = (values: Record<string, unknown>, options: Record<string, string>) => {
+    const yupSchema = createYupSchema(schema?.attributes, components, {
+      status,
+      ...options,
+    });
+
+    return yupSchema.validateSync(values, { abortEarly: false });
+  };
 
   return (
     <Main paddingLeft={10} paddingRight={10}>
-      <Page.Title>{`${documentTitle}`}</Page.Title>
+      <Page.Title>{pageTitle}</Page.Title>
       <Form
         disabled={hasDraftAndPublished && status === 'published'}
         initialValues={initialValues}
         method={isCreatingDocument ? 'POST' : 'PUT'}
         validate={(values: Record<string, unknown>, options: Record<string, string>) => {
+          // removes hidden fields from the validation
+          // this is necessary because the yup schema doesn't know about the visibility conditions
+          // and we don't want to validate fields that are not visible
+          const { data: cleanedValues, removedAttributes } = handleInvisibleAttributes(values, {
+            schema,
+            initialValues,
+            components,
+          });
+
           const yupSchema = createYupSchema(schema?.attributes, components, {
             status,
+            removedAttributes,
             ...options,
           });
 
-          return yupSchema.validate(values, { abortEarly: false });
+          return yupSchema.validate(cleanedValues, { abortEarly: false });
         }}
+        initialErrors={location?.state?.forceValidation ? validateSync(initialValues, {}) : {}}
       >
-        {({ resetForm }) => (
-          <>
-            <Header
-              isCreating={isCreatingDocument}
-              status={hasDraftAndPublished ? getDocumentStatus(document, meta) : undefined}
-              title={documentTitle}
-            />
-            <Tabs.Root variant="simple" value={status} onValueChange={handleTabChange}>
-              <Tabs.List
-                aria-label={formatMessage({
-                  id: getTranslation('containers.edit.tabs.label'),
-                  defaultMessage: 'Document status',
-                })}
-              >
-                {hasDraftAndPublished ? (
-                  <>
-                    <StatusTab value="draft">
-                      {formatMessage({
-                        id: getTranslation('containers.edit.tabs.draft'),
-                        defaultMessage: 'draft',
-                      })}
-                    </StatusTab>
-                    <StatusTab
-                      disabled={!meta || meta.availableStatus.length === 0}
-                      value="published"
-                    >
-                      {formatMessage({
-                        id: getTranslation('containers.edit.tabs.published'),
-                        defaultMessage: 'published',
-                      })}
-                    </StatusTab>
-                  </>
-                ) : null}
-              </Tabs.List>
-              <Grid.Root paddingTop={8} gap={4}>
-                <Grid.Item col={9} s={12} direction="column" alignItems="stretch">
+        <>
+          <Header
+            isCreating={isCreatingDocument}
+            status={hasDraftAndPublished ? getDocumentStatus(document, meta) : undefined}
+            title={pageTitle}
+          />
+          <Tabs.Root variant="simple" value={status} onValueChange={handleTabChange}>
+            <Tabs.List
+              aria-label={formatMessage({
+                id: getTranslation('containers.edit.tabs.label'),
+                defaultMessage: 'Document status',
+              })}
+            >
+              {hasDraftAndPublished ? (
+                <>
+                  <StatusTab value="draft">
+                    {formatMessage({
+                      id: getTranslation('containers.edit.tabs.draft'),
+                      defaultMessage: 'draft',
+                    })}
+                  </StatusTab>
+                  <StatusTab
+                    disabled={!meta || meta.availableStatus.length === 0}
+                    value="published"
+                  >
+                    {formatMessage({
+                      id: getTranslation('containers.edit.tabs.published'),
+                      defaultMessage: 'published',
+                    })}
+                  </StatusTab>
+                </>
+              ) : null}
+            </Tabs.List>
+            <Grid.Root paddingTop={8} gap={4}>
+              <Grid.Item col={9} s={12} direction="column" alignItems="stretch">
+                <unstable_tours.contentManager.Fields>
                   <Tabs.Content value="draft">
-                    <FormLayout layout={layout} />
+                    <FormLayout layout={layout} document={doc} />
                   </Tabs.Content>
-                  <Tabs.Content value="published">
-                    <FormLayout layout={layout} />
-                  </Tabs.Content>
-                </Grid.Item>
-                <Grid.Item col={3} s={12} direction="column" alignItems="stretch">
-                  <Panels />
-                </Grid.Item>
-              </Grid.Root>
-            </Tabs.Root>
-            <Blocker
-              // We reset the form to the published version to avoid errors like – https://strapi-inc.atlassian.net/browse/CONTENT-2284
-              onProceed={resetForm}
-            />
-          </>
-        )}
+                </unstable_tours.contentManager.Fields>
+                <Tabs.Content value="published">
+                  <FormLayout layout={layout} document={doc} />
+                </Tabs.Content>
+              </Grid.Item>
+              <Grid.Item col={3} s={12} direction="column" alignItems="stretch">
+                <Panels />
+              </Grid.Item>
+            </Grid.Root>
+          </Tabs.Root>
+          <BlockerWrapper />
+        </>
       </Form>
     </Main>
   );
@@ -227,7 +226,7 @@ const StatusTab = styled(Tabs.Trigger)`
 
 /**
  * @internal
- * @description Returns the status of the document where it's latest state takes priority,
+ * @description Returns the status of the document where its latest state takes priority,
  * this typically will be "published" unless a user has edited their draft in which we should
  * display "modified".
  */
@@ -293,4 +292,4 @@ const ProtectedEditViewPage = () => {
   );
 };
 
-export { EditViewPage, ProtectedEditViewPage };
+export { EditViewPage, ProtectedEditViewPage, getDocumentStatus };

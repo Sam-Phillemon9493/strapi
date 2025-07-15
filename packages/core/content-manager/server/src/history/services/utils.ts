@@ -1,11 +1,11 @@
 import { difference, omit } from 'lodash/fp';
-import type { Struct, UID } from '@strapi/types';
-import { Core, Data, Modules, Schema } from '@strapi/types';
 import { contentTypes } from '@strapi/utils';
-import { CreateHistoryVersion } from '../../../../shared/contracts/history-versions';
+import type { Core, Modules, Schema, Data, Struct, UID } from '@strapi/types';
+
 import { FIELDS_TO_IGNORE } from '../constants';
-import { HistoryVersions } from '../../../../shared/contracts';
-import { RelationResult } from '../../../../shared/contracts/relations';
+import type { CreateHistoryVersion } from '../../../../shared/contracts/history-versions';
+import type { HistoryVersions } from '../../../../shared/contracts';
+import type { RelationResult } from '../../../../shared/contracts/relations';
 
 const DEFAULT_RETENTION_DAYS = 90;
 
@@ -65,7 +65,7 @@ export const createServiceUtils = ({ strapi }: { strapi: Core.Strapi }) => {
    * The relation if it exists or null
    */
   const getRelationRestoreValue = async (
-    versionRelationData: Data.Entity,
+    versionRelationData: Modules.Documents.AnyDocument | Modules.Documents.AnyDocument[],
     attribute: Schema.Attribute.RelationWithTarget
   ) => {
     if (Array.isArray(versionRelationData)) {
@@ -80,9 +80,7 @@ export const createServiceUtils = ({ strapi }: { strapi: Core.Strapi }) => {
         })
       );
 
-      return existingAndMissingRelations.filter(
-        (relation) => relation !== null
-      ) as Modules.Documents.AnyDocument[];
+      return existingAndMissingRelations.filter((relation) => relation !== null);
     }
 
     return strapi.documents(attribute.target).findOne({
@@ -98,12 +96,10 @@ export const createServiceUtils = ({ strapi }: { strapi: Core.Strapi }) => {
    * The media asset if it exists or null
    */
   const getMediaRestoreValue = async (
-    versionRelationData: Data.Entity,
-    attribute: Schema.Attribute.Media<any, boolean>
+    versionRelationData: Modules.Documents.AnyDocument | Modules.Documents.AnyDocument[]
   ) => {
-    if (attribute.multiple) {
+    if (Array.isArray(versionRelationData)) {
       const existingAndMissingMedias = await Promise.all(
-        // @ts-expect-error Fix the type definitions so this isn't any
         versionRelationData.map((media) => {
           return strapi.db.query('plugin::upload.file').findOne({ where: { id: media.id } });
         })
@@ -180,6 +176,25 @@ export const createServiceUtils = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * Lists all the fields of a component, excepts those that will be populated.
+   * The goal is to exclude the ID, because when restoring a component,
+   * referencing an ID for a component db row that was deleted creates an error.
+   * So we never store component IDs to ensure they're re-created while restoring a version.
+   */
+  const getComponentFields = (componentUID: UID.Component): string[] => {
+    return Object.entries(strapi.getModel(componentUID).attributes).reduce<string[]>(
+      (fieldsAcc, [key, attribute]) => {
+        if (!['relation', 'media', 'component', 'dynamiczone'].includes(attribute.type)) {
+          fieldsAcc.push(key);
+        }
+
+        return fieldsAcc;
+      },
+      []
+    );
+  };
+
+  /**
    * @description
    * Creates a populate object that looks for all the relations that need
    * to be saved in history, and populates only the fields needed to later retrieve the content.
@@ -215,7 +230,10 @@ export const createServiceUtils = ({ strapi }: { strapi: Core.Strapi }) => {
 
         case 'component': {
           const populate = getDeepPopulate(attribute.component);
-          acc[attributeName] = { populate };
+          acc[attributeName] = {
+            populate,
+            [fieldSelector]: getComponentFields(attribute.component),
+          };
           break;
         }
 
@@ -223,7 +241,10 @@ export const createServiceUtils = ({ strapi }: { strapi: Core.Strapi }) => {
           // Use fragments to populate the dynamic zone components
           const populatedComponents = (attribute.components || []).reduce(
             (acc: any, componentUID: UID.Component) => {
-              acc[componentUID] = { populate: getDeepPopulate(componentUID) };
+              acc[componentUID] = {
+                populate: getDeepPopulate(componentUID),
+                [fieldSelector]: getComponentFields(componentUID),
+              };
               return acc;
             },
             {}
@@ -302,7 +323,6 @@ export const createServiceUtils = ({ strapi }: { strapi: Core.Strapi }) => {
             if (!entry) {
               return currentRelationData;
             }
-
             const relatedEntry = await strapi
               .documents(attributeSchema.target)
               .findOne({ documentId: entry.documentId, locale: entry.locale || undefined });
